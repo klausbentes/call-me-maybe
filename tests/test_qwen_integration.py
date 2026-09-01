@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import os
 import unittest
+from pathlib import Path
 
-from src.constrained import StructuralDecoderState, consume_token
+from src.constrained import (
+    StructuralDecoderState,
+    consume_schema_token,
+    consume_token,
+)
 from src.generation import (
     create_model,
     decode_tokens,
@@ -13,6 +18,7 @@ from src.generation import (
     generate_greedy,
     load_model_vocabulary,
 )
+from src.loader import load_function_definitions
 
 
 @unittest.skipUnless(
@@ -32,6 +38,10 @@ class QwenIntegrationTests(unittest.TestCase):
         self.assertEqual(open_brace, "{")
         assert open_brace is not None
         self.assertIsNotNone(consume_token(StructuralDecoderState(), open_brace))
+        functions = load_function_definitions(Path("data/input/functions_definition.json"))
+        self.assertIsNotNone(
+            consume_schema_token(StructuralDecoderState(), open_brace, functions)
+        )
         completion = generate_greedy(model, "Respond with one word:", max_new_tokens=1)
         self.assertEqual(len(completion), 1)
         for text in ('{"name":', '"parameters"', "fn_add_numbers", "hello world"):

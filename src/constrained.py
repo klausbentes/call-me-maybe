@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Sequence
 
@@ -17,7 +18,7 @@ from .generation import (
     greedy_token_id,
     load_model_vocabulary,
 )
-from .models import FunctionDefinitions
+from .models import FunctionDefinition, FunctionDefinitions
 
 
 _INVALID = -2
@@ -344,3 +345,201 @@ def generate_structural_text_for_request(
     if decoded is None:
         raise GenerationError("constrained generation requires the public decode method")
     return decoded
+
+
+def _one_of_literals(
+    text: str, index: int, choices: dict[str, str]
+) -> tuple[int, str | None]:
+    """Match one JSON literal choice, retaining an unfinished common prefix."""
+    for literal, value in choices.items():
+        if text.startswith(literal, index):
+            return index + len(literal), value
+    remaining = text[index:]
+    if any(literal.startswith(remaining) for literal in choices):
+        return _INCOMPLETE, None
+    return _INVALID, None
+
+
+def _integer(text: str, index: int) -> int:
+    """Parse a JSON integer, excluding fraction and exponent forms."""
+    result = _number(text, index)
+    if result < 0:
+        return result
+    if result < len(text) and text[result] in ".eE":
+        return _INVALID
+    return result
+
+
+def _typed_value(text: str, index: int, type_name: str) -> int:
+    """Parse one value constrained only by its declared top-level JSON type."""
+    index = _skip_whitespace(text, index)
+    if index == len(text):
+        return _INCOMPLETE
+    if type_name == "string":
+        return _string(text, index)
+    if type_name == "number":
+        return _number(text, index)
+    if type_name == "integer":
+        return _integer(text, index)
+    if type_name == "boolean":
+        return _one_of_literals(text, index, {"true": "", "false": ""})[0]
+    if type_name == "null":
+        return _literal(text, index, "null")
+    if type_name == "object":
+        return _object(text, index) if text[index] == "{" else _INVALID
+    if type_name == "array":
+        return _array(text, index) if text[index] == "[" else _INVALID
+    return _INVALID
+
+
+def _schema_parameters(text: str, index: int, function: FunctionDefinition) -> int:
+    """Parse a parameter object with exactly the keys declared by one function."""
+    if index == len(text):
+        return _INCOMPLETE
+    if text[index] != "{":
+        return _INVALID
+    index = _skip_whitespace(text, index + 1)
+    seen: set[str] = set()
+    if index == len(text):
+        return _INCOMPLETE
+    if text[index] == "}":
+        return index + 1 if not function.parameters else _INVALID
+    while True:
+        choices = {
+            json.dumps(name, ensure_ascii=False): name
+            for name in function.parameters
+            if name not in seen
+        }
+        index, parameter_name = _one_of_literals(text, index, choices)
+        if index < 0:
+            return index
+        if parameter_name is None:
+            return _INVALID
+        seen.add(parameter_name)
+        index = _skip_whitespace(text, index)
+        index = _literal(text, index, ":")
+        if index < 0:
+            return index
+        index = _typed_value(text, index, function.parameters[parameter_name].type)
+        if index < 0:
+            return index
+        index = _skip_whitespace(text, index)
+        if index == len(text):
+            return _INCOMPLETE
+        if text[index] == "}":
+            return index + 1 if len(seen) == len(function.parameters) else _INVALID
+        if text[index] != ",":
+            return _INVALID
+        index = _skip_whitespace(text, index + 1)
+        if index == len(text):
+            return _INCOMPLETE
+        if text[index] == "}":
+            return _INVALID
+
+
+def validate_schema_prefix(prefix: str, functions: FunctionDefinitions) -> PrefixValidation:
+    """Validate a prefix against one dynamically selected function definition."""
+    index = _skip_whitespace(prefix, 0)
+    index = _literal(prefix, index, "{")
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, '"name"')
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, ":")
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    names = {json.dumps(item.name, ensure_ascii=False): item.name for item in functions.root}
+    index, function_name = _one_of_literals(prefix, index, names)
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    if function_name is None:
+        return PrefixValidation(is_possible=False, is_complete=False)
+    selected = next(item for item in functions.root if item.name == function_name)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, ",")
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, '"parameters"')
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, ":")
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _schema_parameters(prefix, index, selected)
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    index = _literal(prefix, index, "}")
+    if index < 0:
+        return PrefixValidation(is_possible=index == _INCOMPLETE, is_complete=False)
+    index = _skip_whitespace(prefix, index)
+    return PrefixValidation(is_possible=index == len(prefix), is_complete=index == len(prefix))
+
+
+def consume_schema_token(
+    state: StructuralDecoderState, token_text: str, functions: FunctionDefinitions
+) -> StructuralDecoderState | None:
+    """Apply one whole token if it preserves the selected function's schema prefix."""
+    if not token_text or state.is_complete:
+        return None
+    candidate = state.prefix + token_text
+    validation = validate_schema_prefix(candidate, functions)
+    if not validation.is_possible:
+        return None
+    return StructuralDecoderState(prefix=candidate, is_complete=validation.is_complete)
+
+
+def allowed_schema_token_ids(
+    model: PublicLanguageModel,
+    vocabulary: Vocabulary,
+    state: StructuralDecoderState,
+    functions: FunctionDefinitions,
+    token_text_cache: dict[int, str],
+) -> set[int]:
+    """Return IDs whose decoded token keeps a dynamically selected schema viable."""
+    allowed: set[int] = set()
+    for token_id in set(vocabulary.values()):
+        token_text = token_text_cache.get(token_id)
+        if token_text is None:
+            decoded = decode_tokens(model, [token_id])
+            token_text = decoded if decoded is not None else ""
+            token_text_cache[token_id] = token_text
+        if consume_schema_token(state, token_text, functions) is not None:
+            allowed.add(token_id)
+    return allowed
+
+
+def generate_schema_json(
+    model: PublicLanguageModel,
+    prompt: str,
+    functions: FunctionDefinitions,
+    max_new_tokens: int = 128,
+) -> list[int]:
+    """Greedily generate a complete JSON object constrained by the chosen function schema."""
+    if max_new_tokens <= 0:
+        raise GenerationError("max_new_tokens must be positive")
+    input_ids = encoded_token_ids(model, prompt)
+    vocabulary = load_model_vocabulary(model)
+    cache: dict[int, str] = {}
+    state = StructuralDecoderState()
+    generated_ids: list[int] = []
+    for _ in range(max_new_tokens):
+        logits = model.get_logits_from_input_ids(input_ids)
+        allowed_ids = allowed_schema_token_ids(model, vocabulary, state, functions, cache)
+        next_token_id = greedy_token_id(mask_invalid_logits(logits, allowed_ids))
+        next_state = consume_schema_token(state, cache[next_token_id], functions)
+        if next_state is None:
+            raise GenerationError("selected token does not preserve the function schema")
+        generated_ids.append(next_token_id)
+        input_ids.append(next_token_id)
+        state = next_state
+        if state.is_complete:
+            return generated_ids
+    raise GenerationError("generation reached max_new_tokens before completing schema JSON")
