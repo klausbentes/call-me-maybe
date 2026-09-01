@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import unittest
-import json
 from pathlib import Path
 
 from src.constrained import (
@@ -20,6 +20,7 @@ from src.generation import (
     build_generation_prompt,
     create_model,
     encoded_token_ids,
+    decode_tokens,
 )
 from src.loader import load_function_definitions, load_prompt_definitions
 from src.models import FunctionDefinitions
@@ -112,6 +113,7 @@ class QwenProfileTests(unittest.TestCase):
         model = create_model()
         metrics = SchemaGenerationMetrics()
         print(f"diagnostic-prompt: index={prompt_index + 1} prompt={prompt!r}", flush=True)
+        started = time.perf_counter()
         try:
             token_ids = generate_schema_json(
                 model,
@@ -126,10 +128,19 @@ class QwenProfileTests(unittest.TestCase):
             print(f"diagnostic-limit: {diagnostics.model_dump_json()}", flush=True)
             self.fail(str(error))
         else:
+            elapsed = time.perf_counter() - started
+            generated_text = decode_tokens(model, token_ids)
+            self.assertIsNotNone(generated_text)
+            assert generated_text is not None
+            result = json.loads(generated_text)
             print(
                 "diagnostic-success: "
                 f"tokens={len(token_ids)} "
-                f"prefix={''.join(item.text for item in metrics.token_trace)!r}",
+                f"total={elapsed:.3f}s logits={metrics.logits_seconds:.3f}s "
+                f"constraint={metrics.constraint_seconds:.3f}s "
+                f"rejected={metrics.rejected_candidates} "
+                f"name={result['name']!r} parameters={result['parameters']!r} "
+                f"json={generated_text}",
                 flush=True,
             )
 
