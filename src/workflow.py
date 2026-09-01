@@ -5,11 +5,18 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from .constrained import generate_schema_json
+from pydantic import BaseModel, ConfigDict
+
+from .constrained import (
+    SchemaGenerationLimitError,
+    SchemaGenerationMetrics,
+    generate_schema_json,
+)
 from .errors import InputError
 from .generation import (
     GenerationError,
@@ -20,6 +27,28 @@ from .generation import (
     load_model_vocabulary,
 )
 from .models import FunctionCallResult, FunctionDefinitions, PromptDefinitions
+
+
+class PromptBenchmarkRecord(BaseModel):
+    """Record timing and constrained-generation status for one diagnostic prompt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    index: int
+    prompt: str
+    total_seconds: float
+    generated_tokens: int
+    function_name: str | None = None
+    logits_seconds: float
+    constraint_seconds: float
+    status: Literal["completed", "failed", "interrupted"]
+    error: str | None = None
+    prefix: str | None = None
+    active_parameter: str | None = None
+    active_parameter_type: str | None = None
+
+
+DiagnosticReporter = Callable[[PromptBenchmarkRecord], None]
 
 
 def _value_matches_type(value: Any, type_name: str) -> bool:
@@ -90,6 +119,7 @@ def process_prompts(
                 token_text_cache,
                 vocabulary,
                 vocabulary_ids,
+                original_prompt=prompt_definition.prompt,
             )
             generated_text = decode_tokens(model, token_ids)
             if generated_text is None:
@@ -99,6 +129,99 @@ def process_prompts(
         except GenerationError as error:
             raise GenerationError(f"generation failed for prompt {index}: {error}") from error
     return results
+
+
+def diagnose_prompts(
+    model: PublicLanguageModel,
+    functions: FunctionDefinitions,
+    prompts: PromptDefinitions,
+    max_new_tokens: int = 128,
+    reporter: DiagnosticReporter | None = None,
+) -> list[PromptBenchmarkRecord]:
+    """Run every prompt sequentially and emit a durable record after each attempt.
+
+    This diagnostic path shares the normal vocabulary and decoded-token caches, but
+    never writes an output file and never changes production error behavior.
+    """
+    records: list[PromptBenchmarkRecord] = []
+    token_text_cache: dict[int, str] = {}
+    vocabulary = load_model_vocabulary(model)
+    vocabulary_ids = set(vocabulary.values())
+    for index, prompt_definition in enumerate(prompts.root, start=1):
+        metrics = SchemaGenerationMetrics()
+        started = time.perf_counter()
+        try:
+            model_prompt = build_generation_prompt(prompt_definition.prompt, functions)
+            token_ids = generate_schema_json(
+                model,
+                model_prompt,
+                functions,
+                max_new_tokens,
+                token_text_cache,
+                vocabulary,
+                vocabulary_ids,
+                metrics=metrics,
+                original_prompt=prompt_definition.prompt,
+            )
+            generated_text = decode_tokens(model, token_ids)
+            if generated_text is None:
+                raise GenerationError("the SDK does not expose the required decode method")
+            result = _parse_generated_call(generated_text, prompt_definition.prompt, functions)
+            record = PromptBenchmarkRecord(
+                index=index,
+                prompt=prompt_definition.prompt,
+                total_seconds=time.perf_counter() - started,
+                generated_tokens=len(token_ids),
+                function_name=result.name,
+                logits_seconds=metrics.logits_seconds,
+                constraint_seconds=metrics.constraint_seconds,
+                status="completed",
+            )
+        except SchemaGenerationLimitError as error:
+            diagnostics = error.diagnostics
+            record = PromptBenchmarkRecord(
+                index=index,
+                prompt=prompt_definition.prompt,
+                total_seconds=time.perf_counter() - started,
+                generated_tokens=metrics.generated_tokens,
+                function_name=diagnostics.selected_function,
+                logits_seconds=metrics.logits_seconds,
+                constraint_seconds=metrics.constraint_seconds,
+                status="failed",
+                error=str(error),
+                prefix=diagnostics.prefix,
+                active_parameter=diagnostics.active_parameter,
+                active_parameter_type=diagnostics.active_parameter_type,
+            )
+        except GenerationError as error:
+            record = PromptBenchmarkRecord(
+                index=index,
+                prompt=prompt_definition.prompt,
+                total_seconds=time.perf_counter() - started,
+                generated_tokens=metrics.generated_tokens,
+                logits_seconds=metrics.logits_seconds,
+                constraint_seconds=metrics.constraint_seconds,
+                status="failed",
+                error=str(error),
+            )
+        except KeyboardInterrupt:
+            record = PromptBenchmarkRecord(
+                index=index,
+                prompt=prompt_definition.prompt,
+                total_seconds=time.perf_counter() - started,
+                generated_tokens=metrics.generated_tokens,
+                logits_seconds=metrics.logits_seconds,
+                constraint_seconds=metrics.constraint_seconds,
+                status="interrupted",
+            )
+            records.append(record)
+            if reporter is not None:
+                reporter(record)
+            break
+        records.append(record)
+        if reporter is not None:
+            reporter(record)
+    return records
 
 
 def write_results(results: Sequence[FunctionCallResult], output_path: Path) -> None:

@@ -9,7 +9,13 @@ from pathlib import Path
 
 from src.generation import GenerationError
 from src.models import FunctionDefinitions, PromptDefinitions
-from src.workflow import _parse_generated_call, process_prompts, write_results
+from src.workflow import (
+    PromptBenchmarkRecord,
+    _parse_generated_call,
+    diagnose_prompts,
+    process_prompts,
+    write_results,
+)
 
 
 class WorkflowEncodedInput:
@@ -107,6 +113,26 @@ class WorkflowTests(unittest.TestCase):
             model = WorkflowFakeModel({0: "prose"}, [[1.0]], str(path))
             with self.assertRaisesRegex(GenerationError, "prompt 1"):
                 process_prompts(model, self._definitions(), self._prompts())
+
+    def test_diagnostic_reports_each_prompt_without_writing_output(self) -> None:
+        """Diagnostic mode emits one completed record per sequential prompt."""
+        pieces = ['{"name":"fn_reply",', '"parameters":{"message":"ok"}}']
+        vocabulary = {piece: index for index, piece in enumerate(pieces)}
+        logits = [[2.0, -1.0], [-1.0, 2.0]] * 2
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "vocabulary.json"
+            path.write_text(json.dumps(vocabulary), encoding="utf-8")
+            model = WorkflowFakeModel(
+                {index: piece for index, piece in enumerate(pieces)}, logits, str(path)
+            )
+            reported: list[PromptBenchmarkRecord] = []
+            records = diagnose_prompts(
+                model, self._definitions(), self._prompts(), reporter=reported.append
+            )
+        self.assertEqual(records, reported)
+        self.assertEqual([record.status for record in records], ["completed", "completed"])
+        self.assertEqual([record.generated_tokens for record in records], [2, 2])
+        self.assertEqual([record.function_name for record in records], ["fn_reply", "fn_reply"])
 
     def test_final_validation_rejects_schema_mismatch(self) -> None:
         """A final JSON parse cannot bypass the selected function's parameter type checks."""

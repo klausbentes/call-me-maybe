@@ -24,6 +24,7 @@ from src.generation import (
 )
 from src.loader import load_function_definitions, load_prompt_definitions
 from src.models import FunctionDefinitions
+from src.workflow import PromptBenchmarkRecord, diagnose_prompts
 
 
 @unittest.skipUnless(
@@ -143,6 +144,23 @@ class QwenProfileTests(unittest.TestCase):
                 f"json={generated_text}",
                 flush=True,
             )
+
+    def test_diagnose_all_official_prompts(self) -> None:
+        """Print one record immediately after each official prompt is attempted."""
+        functions = load_function_definitions(Path("data/input/functions_definition.json"))
+        prompts = load_prompt_definitions(Path("data/input/function_calling_tests.json"))
+        model = create_model()
+        records = diagnose_prompts(
+            model,
+            functions,
+            prompts,
+            reporter=self._print_benchmark_record,
+        )
+        self.assertEqual(len(records), len(prompts.root))
+
+    def _print_benchmark_record(self, record: PromptBenchmarkRecord) -> None:
+        """Write a Pydantic diagnostic record immediately for timeout-safe collection."""
+        print(record.model_dump_json(), flush=True)
 
     def _print_trace(self, item: GeneratedTokenTrace) -> None:
         """Emit each accepted token so long real diagnostics remain observable."""
