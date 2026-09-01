@@ -8,7 +8,12 @@ import unittest
 import json
 from pathlib import Path
 
-from src.constrained import SchemaGenerationMetrics, generate_schema_json
+from src.constrained import (
+    GeneratedTokenTrace,
+    SchemaGenerationLimitError,
+    SchemaGenerationMetrics,
+    generate_schema_json,
+)
 from src.generation import (
     GenerationError,
     PublicLanguageModel,
@@ -97,6 +102,40 @@ class QwenProfileTests(unittest.TestCase):
         target = int(mode)
         context = self._context_at_least_tokens(model, target)
         self._measure_logits(model, f"controlled-{target}", context)
+
+    def test_diagnose_official_prompt(self) -> None:
+        """Print token-level diagnostics for the configured official prompt index."""
+        functions = load_function_definitions(Path("data/input/functions_definition.json"))
+        prompts = load_prompt_definitions(Path("data/input/function_calling_tests.json"))
+        prompt_index = int(os.environ.get("QWEN_DIAGNOSTIC_PROMPT", "3")) - 1
+        prompt = prompts.root[prompt_index].prompt
+        model = create_model()
+        metrics = SchemaGenerationMetrics()
+        print(f"diagnostic-prompt: index={prompt_index + 1} prompt={prompt!r}", flush=True)
+        try:
+            token_ids = generate_schema_json(
+                model,
+                build_generation_prompt(prompt, functions),
+                functions,
+                metrics=metrics,
+                original_prompt=prompt,
+                trace_callback=self._print_trace,
+            )
+        except SchemaGenerationLimitError as error:
+            diagnostics = error.diagnostics
+            print(f"diagnostic-limit: {diagnostics.model_dump_json()}", flush=True)
+            self.fail(str(error))
+        else:
+            print(
+                "diagnostic-success: "
+                f"tokens={len(token_ids)} "
+                f"prefix={''.join(item.text for item in metrics.token_trace)!r}",
+                flush=True,
+            )
+
+    def _print_trace(self, item: GeneratedTokenTrace) -> None:
+        """Emit each accepted token so long real diagnostics remain observable."""
+        print(f"diagnostic-token: {item.index} id={item.token_id} text={item.text!r}", flush=True)
 
     def _measure_logits(self, model: PublicLanguageModel, label: str, context: str) -> None:
         """Encode a context and print the elapsed public next-token logits call."""

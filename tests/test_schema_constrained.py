@@ -140,6 +140,13 @@ class SchemaConstrainedTests(unittest.TestCase):
         self.assertFalse(missing.is_possible)
         self.assertFalse(extra.is_possible)
 
+    def test_rejects_comma_after_the_last_required_parameter(self) -> None:
+        """A completed parameter set cannot enter a whitespace cycle after a comma."""
+        invalid = validate_schema_prefix(
+            '{"name":"fn_toggle","parameters":{"enabled":true},', self.functions
+        )
+        self.assertFalse(invalid.is_possible)
+
     def test_schema_changes_after_the_selected_name(self) -> None:
         """The same parameter token is allowed or denied based on the selected function."""
         toggle_state = consume_schema_token(
@@ -196,3 +203,15 @@ class SchemaConstrainedTests(unittest.TestCase):
         self.assertEqual(generated, [0, 1, 2])
         self.assertEqual(metrics.generated_tokens, 3)
         self.assertGreaterEqual(metrics.rejected_candidates, 0)
+
+    def test_generation_rejects_high_logit_comma_after_last_parameter(self) -> None:
+        """A higher-scoring comma cannot create an endless whitespace prefix after completion."""
+        invalid = '{"name":"fn_toggle","parameters":{"enabled":true},'
+        complete = '{"name":"fn_toggle","parameters":{"enabled":true}}'
+        vocabulary = {invalid: 0, complete: 1}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "vocabulary.json"
+            path.write_text(json.dumps(vocabulary), encoding="utf-8")
+            model = SchemaFakeModel({0: invalid, 1: complete}, [[10.0, 1.0]], str(path))
+            generated = generate_schema_json(model, "prompt", self.functions, 2)
+        self.assertEqual(generated, [1])

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
@@ -50,6 +50,7 @@ class SchemaGenerationMetrics(BaseModel):
     constraint_seconds: float = 0.0
     generated_tokens: int = 0
     rejected_candidates: int = 0
+    token_trace: list["GeneratedTokenTrace"] = []
 
 
 class TokenSelection(BaseModel):
@@ -57,6 +58,41 @@ class TokenSelection(BaseModel):
 
     token_id: int
     rejected_candidates: int
+
+
+class GeneratedTokenTrace(BaseModel):
+    """Capture one accepted token for opt-in generation diagnostics."""
+
+    index: int
+    token_id: int
+    text: str
+
+
+class SchemaGenerationDiagnostics(BaseModel):
+    """Describe the schema-aware state when generation reaches its token limit."""
+
+    prompt: str | None
+    selected_function: str | None
+    active_parameter: str | None
+    active_parameter_type: str | None
+    generated_tokens: int
+    max_new_tokens: int
+    prefix: str
+    last_tokens: list[GeneratedTokenTrace]
+
+
+class SchemaGenerationLimitError(GenerationError):
+    """Report a token-limit failure with structured constrained-decoder diagnostics."""
+
+    def __init__(self, diagnostics: SchemaGenerationDiagnostics) -> None:
+        """Store diagnostics and create a concise user-facing error message."""
+        self.diagnostics = diagnostics
+        super().__init__(
+            "generation reached max_new_tokens before completing schema JSON "
+            f"(function={diagnostics.selected_function}, "
+            f"parameter={diagnostics.active_parameter}, "
+            f"tokens={diagnostics.generated_tokens}/{diagnostics.max_new_tokens})"
+        )
 
 
 def _skip_whitespace(text: str, index: int) -> int:
@@ -447,6 +483,8 @@ def _schema_parameters(text: str, index: int, function: FunctionDefinition) -> i
             return index + 1 if len(seen) == len(function.parameters) else _INVALID
         if text[index] != ",":
             return _INVALID
+        if len(seen) == len(function.parameters):
+            return _INVALID
         index = _skip_whitespace(text, index + 1)
         if index == len(text):
             return _INCOMPLETE
@@ -542,6 +580,8 @@ def generate_schema_json(
     vocabulary: Vocabulary | None = None,
     vocabulary_ids: set[int] | None = None,
     metrics: SchemaGenerationMetrics | None = None,
+    original_prompt: str | None = None,
+    trace_callback: Callable[[GeneratedTokenTrace], None] | None = None,
 ) -> list[int]:
     """Greedily generate a complete JSON object constrained by the chosen function schema."""
     if max_new_tokens <= 0:
@@ -563,11 +603,19 @@ def generate_schema_json(
             model, active_vocabulary, active_vocabulary_ids, state, functions, cache, logits
         )
         constraint_elapsed = time.perf_counter() - constraint_started
+        trace_item = GeneratedTokenTrace(
+            index=len(generated_ids) + 1,
+            token_id=selection.token_id,
+            text=cache[selection.token_id],
+        )
         if metrics is not None:
             metrics.logits_seconds += logits_elapsed
             metrics.constraint_seconds += constraint_elapsed
             metrics.generated_tokens += 1
             metrics.rejected_candidates += selection.rejected_candidates
+            metrics.token_trace.append(trace_item)
+        if trace_callback is not None:
+            trace_callback(trace_item)
         next_state = consume_schema_token(state, cache[selection.token_id], functions)
         if next_state is None:
             raise GenerationError("selected token does not preserve the function schema")
@@ -576,7 +624,50 @@ def generate_schema_json(
         state = next_state
         if state.is_complete:
             return generated_ids
-    raise GenerationError("generation reached max_new_tokens before completing schema JSON")
+    diagnostics = _limit_diagnostics(
+        state, functions, original_prompt, generated_ids, max_new_tokens, metrics
+    )
+    raise SchemaGenerationLimitError(diagnostics)
+
+
+def _limit_diagnostics(
+    state: StructuralDecoderState,
+    functions: FunctionDefinitions,
+    original_prompt: str | None,
+    generated_ids: list[int],
+    max_new_tokens: int,
+    metrics: SchemaGenerationMetrics | None,
+) -> SchemaGenerationDiagnostics:
+    """Build dynamic schema diagnostics without changing decoder acceptance rules."""
+    selected = next(
+        (
+            function
+            for function in functions.root
+            if f'"name":{json.dumps(function.name, ensure_ascii=False)}' in state.prefix
+        ),
+        None,
+    )
+    active_parameter: str | None = None
+    active_parameter_type: str | None = None
+    if selected is not None:
+        parameter_positions = [
+            (state.prefix.rfind(f'{json.dumps(name, ensure_ascii=False)}:'), name)
+            for name in selected.parameters
+        ]
+        position, active_parameter = max(parameter_positions, default=(-1, None))
+        if position >= 0 and active_parameter is not None:
+            active_parameter_type = selected.parameters[active_parameter].type
+    trace = metrics.token_trace if metrics is not None else []
+    return SchemaGenerationDiagnostics(
+        prompt=original_prompt,
+        selected_function=selected.name if selected is not None else None,
+        active_parameter=active_parameter,
+        active_parameter_type=active_parameter_type,
+        generated_tokens=len(generated_ids),
+        max_new_tokens=max_new_tokens,
+        prefix=state.prefix,
+        last_tokens=trace[-12:],
+    )
 
 
 def select_schema_token_greedy(
