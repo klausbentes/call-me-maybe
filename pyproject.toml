@@ -1,7 +1,7 @@
 [project]
 name = "call-me-maybe"
 version = "0.1.0"
-description = "Foundation layer for the 42 Call Me Maybe project."
+description = "Schema-constrained Qwen function-calling implementation for 42 Call Me Maybe."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

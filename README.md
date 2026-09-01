@@ -29,6 +29,9 @@ Each external document is decoded using UTF-8 JSON and immediately validated wit
 Pydantic models. Models forbid undocumented fields, reject blank identifiers/prompts,
 ensure unique function names, and restrict type declarations to standard JSON types.
 Expected input failures are converted into short, actionable CLI messages.
+The model is initialized once per run. Its vocabulary and decoded token texts are cached
+across prompts. Output is written atomically only after every prompt has produced a
+validated result, so a failed prompt cannot create a partial output document.
 
 ## Algorithm explanation
 
@@ -42,22 +45,33 @@ write. No heuristic function selection is used.
 
 ## Performance analysis
 
-Validation is linear in the size of the JSON inputs and does not load an LLM. The
-separate generation layer makes one model forward pass per generated token. Structural
-decoding also evaluates vocabulary candidates at each step, so it is intentionally a
-correctness-first baseline before performance optimization.
+Validation is linear in the size of the JSON inputs. Generation makes one model forward
+pass per token because the supplied public SDK exposes no KV-cache API. Candidates are
+checked lazily in descending-logit order: this is equivalent to greedy selection after
+masking invalid candidates with negative infinity, while avoiding decoding every token
+whose score cannot affect the result. Vocabulary data and decoded token text are reused
+between prompts.
+
+The supplied official dataset contains 11 prompts and no expected-output field, so it
+cannot measure accuracy automatically. A full CPU benchmark was attempted on the local
+Qwen cache, but the execution environment interrupted the silent run after model loading
+and before completion. No end-to-end time, average time, accuracy, or output result is
+claimed here. The mandatory five-minute target therefore remains unverified.
 
 ## Challenges faced
 
-The main boundary is keeping the application useful before model integration without
-pretending that calls were generated. The CLI therefore validates and reports readiness
-instead of writing incomplete output records.
+The main constraint is correctness without tokenizer internals: each complete public
+decoder token is checked against the incremental JSON and function schema before it can
+be selected. CPU performance is limited by the SDK's full-sequence, token-by-token
+inference interface, so production timing must be measured on the evaluation hardware.
 
 ## Testing strategy
 
-The standard-library `unittest` suite covers valid input, malformed JSON, unsupported
-types, unexpected fields, and missing files. Lint targets run flake8 and mypy as
-required by the subject.
+The standard-library `unittest` suite covers valid input, malformed JSON, missing files,
+similar function names, parameter ordering, strings and escapes, negative/large floating
+numbers, booleans, missing and extra parameters, type mismatches, ambiguous prompts,
+output writing, and per-prompt failures. An opt-in integration test loads Qwen and its
+real vocabulary. Lint targets run flake8 and mypy as required by the subject.
 
 ## Resources
 
