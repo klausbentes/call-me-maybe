@@ -8,7 +8,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .errors import InputError
+from .generation import GenerationError
 from .loader import load_function_definitions, load_prompt_definitions
+from .workflow import run_calling_flow
 
 
 DEFAULT_FUNCTIONS = Path("data/input/functions_definition.json")
@@ -38,9 +40,10 @@ def run(arguments: Sequence[str] | None = None) -> int:
         print(f"error: {error}", file=sys.stderr)
         return 2
 
-    print(
-        "Inputs validated: "
-        f"{len(functions.root)} function(s), {len(prompts.root)} prompt(s)."
-    )
-    print(f"No function calls generated yet; future output path: {options.output}.")
+    try:
+        results = run_calling_flow(functions, prompts, options.output)
+    except (GenerationError, InputError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 3
+    print(f"Generated {len(results)} function call(s): {options.output}")
     return 0

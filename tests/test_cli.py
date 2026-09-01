@@ -8,6 +8,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from src.cli import run
 
@@ -37,17 +38,18 @@ class CliTests(unittest.TestCase):
             functions_path = self._write_json(directory, "functions.json", functions)
             prompts_path = self._write_json(directory, "prompts.json", prompts)
             output = StringIO()
-            with redirect_stdout(output):
-                status = run(
-                    [
-                        "--functions_definition",
-                        str(functions_path),
-                        "--input",
-                        str(prompts_path),
-                    ]
-                )
+            with patch("src.cli.run_calling_flow", return_value=[]):
+                with redirect_stdout(output):
+                    status = run(
+                        [
+                            "--functions_definition",
+                            str(functions_path),
+                            "--input",
+                            str(prompts_path),
+                        ]
+                    )
         self.assertEqual(status, 0)
-        self.assertIn("Inputs validated: 1 function(s), 1 prompt(s).", output.getvalue())
+        self.assertIn("Generated 0 function call(s)", output.getvalue())
 
     def test_run_reports_missing_file(self) -> None:
         """A missing input returns a controlled error instead of crashing."""

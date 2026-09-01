@@ -95,3 +95,13 @@ class PromptDefinitions(BaseModel):
     def from_json_data(cls, data: Any) -> PromptDefinitions:
         """Build this root model from decoded JSON data."""
         return cls(root=data)
+
+
+class FunctionCallResult(BaseModel):
+    """Represent one final function-call record written to the output document."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str
+    name: str
+    parameters: dict[str, Any]

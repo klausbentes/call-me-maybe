@@ -521,19 +521,21 @@ def generate_schema_json(
     prompt: str,
     functions: FunctionDefinitions,
     max_new_tokens: int = 128,
+    token_text_cache: dict[int, str] | None = None,
 ) -> list[int]:
     """Greedily generate a complete JSON object constrained by the chosen function schema."""
     if max_new_tokens <= 0:
         raise GenerationError("max_new_tokens must be positive")
     input_ids = encoded_token_ids(model, prompt)
     vocabulary = load_model_vocabulary(model)
-    cache: dict[int, str] = {}
+    cache = token_text_cache if token_text_cache is not None else {}
     state = StructuralDecoderState()
     generated_ids: list[int] = []
     for _ in range(max_new_tokens):
         logits = model.get_logits_from_input_ids(input_ids)
-        allowed_ids = allowed_schema_token_ids(model, vocabulary, state, functions, cache)
-        next_token_id = greedy_token_id(mask_invalid_logits(logits, allowed_ids))
+        next_token_id = select_schema_token_greedy(
+            model, vocabulary, state, functions, cache, logits
+        )
         next_state = consume_schema_token(state, cache[next_token_id], functions)
         if next_state is None:
             raise GenerationError("selected token does not preserve the function schema")
@@ -543,3 +545,32 @@ def generate_schema_json(
         if state.is_complete:
             return generated_ids
     raise GenerationError("generation reached max_new_tokens before completing schema JSON")
+
+
+def select_schema_token_greedy(
+    model: PublicLanguageModel,
+    vocabulary: Vocabulary,
+    state: StructuralDecoderState,
+    functions: FunctionDefinitions,
+    token_text_cache: dict[int, str],
+    logits: Sequence[float],
+) -> int:
+    """Select greedily with lazy masking while preserving full-mask semantics.
+
+    Candidates are visited in descending logit order (and ascending ID for ties). Every
+    rejected candidate is equivalent to assigning it ``-inf``. The first viable token
+    is therefore exactly the greedy result of a fully masked vector, without decoding
+    every vocabulary entry merely to prove lower-scoring candidates are irrelevant.
+    """
+    vocabulary_ids = set(vocabulary.values())
+    for token_id in sorted(range(len(logits)), key=lambda item: (-logits[item], item)):
+        if token_id not in vocabulary_ids:
+            continue
+        token_text = token_text_cache.get(token_id)
+        if token_text is None:
+            decoded = decode_tokens(model, [token_id])
+            token_text = decoded if decoded is not None else ""
+            token_text_cache[token_id] = token_text
+        if consume_schema_token(state, token_text, functions) is not None:
+            return token_id
+    raise GenerationError("no structurally valid token is available")

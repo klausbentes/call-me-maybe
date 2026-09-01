@@ -6,9 +6,9 @@
 
 Call Me Maybe translates natural-language requests into schema-valid function calls.
 This repository implements the foundation stage, an isolated greedy generation layer,
-and structural constrained decoding for Qwen/Qwen3-0.6B. The CLI still validates
-inputs only; the model selects from declared function names, while the decoder enforces
-the selected function's parameter schema before a result is ever produced.
+and structural constrained decoding for Qwen/Qwen3-0.6B. The CLI processes every
+input prompt, lets the model select from declared function names, and writes a verified
+JSON result array after the decoder enforces the selected parameter schema.
 
 ## Instructions
 
@@ -19,9 +19,9 @@ uv run python -m src
 uv run python -m src --functions_definition data/input/functions_definition.json --input data/input/function_calling_tests.json --output data/output/function_calling_results.json
 ```
 
-The default inputs are under `data/input/`. This stage validates them and prints a
-summary. It intentionally does not create function-call results. Use `make test`,
-`make lint`, or `make lint-strict` during development.
+The default inputs are under `data/input/`, and the default output is
+`data/output/function_calling_results.json`. The output directory is created as needed.
+Use `make test`, `make lint`, or `make lint-strict` during development.
 
 ## Design decisions
 
@@ -37,7 +37,8 @@ incremental JSON-prefix parser. Invalid token logits are masked before greedy se
 ensuring an output envelope with exactly `name` and `parameters`, valid string escapes,
 and no trailing commas. Once a name is completed, its supplied schema dynamically
 restricts parameter keys, requires every key, rejects extras, and enforces declared
-top-level JSON types. No heuristic function selection is used.
+top-level JSON types. Results are parsed and verified again before an atomic output-file
+write. No heuristic function selection is used.
 
 ## Performance analysis
 
