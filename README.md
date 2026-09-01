@@ -5,10 +5,9 @@
 ## Description
 
 Call Me Maybe translates natural-language requests into schema-valid function calls.
-This repository currently implements the first foundation stage: the command-line
-interface, safe JSON loading, and Pydantic validation of function definitions and
-prompts. LLM selection, token generation, and constrained decoding are deliberately
-not implemented in this stage.
+This repository implements the foundation stage plus an isolated, unconstrained greedy
+generation layer for Qwen/Qwen3-0.6B. The CLI still validates inputs only; function
+selection, structured output, and constrained decoding are not implemented yet.
 
 ## Instructions
 
@@ -32,16 +31,16 @@ Expected input failures are converted into short, actionable CLI messages.
 
 ## Algorithm explanation
 
-The next stage will choose a function with Qwen/Qwen3-0.6B and use schema-aware
-constrained decoding: at each token, invalid continuations will be masked, ensuring
+The next stage will use schema-aware constrained decoding: at each token, invalid
+continuations will be masked, ensuring
 the final JSON has exactly `prompt`, `name`, and `parameters` with the declared types.
 No heuristic selection or pseudo-generation is used in this foundation stage.
 
 ## Performance analysis
 
-Validation is linear in the size of the JSON inputs and does not load an LLM. This
-makes input feedback immediate while establishing the schema checks needed for reliable
-generation later.
+Validation is linear in the size of the JSON inputs and does not load an LLM. The
+separate greedy generator makes one model forward pass per generated token, which is a
+clear baseline for the constrained decoder that follows.
 
 ## Challenges faced
 

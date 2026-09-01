@@ -23,7 +23,14 @@ class CliTests(unittest.TestCase):
 
     def test_run_accepts_valid_inputs(self) -> None:
         """Valid documents produce a clear success summary."""
-        functions = [{"name": "fn_ping", "description": "Ping.", "parameters": {}, "returns": {"type": "string"}}]
+        functions = [
+            {
+                "name": "fn_ping",
+                "description": "Ping.",
+                "parameters": {},
+                "returns": {"type": "string"},
+            }
+        ]
         prompts = [{"prompt": "Ping the server"}]
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -31,7 +38,14 @@ class CliTests(unittest.TestCase):
             prompts_path = self._write_json(directory, "prompts.json", prompts)
             output = StringIO()
             with redirect_stdout(output):
-                status = run(["--functions_definition", str(functions_path), "--input", str(prompts_path)])
+                status = run(
+                    [
+                        "--functions_definition",
+                        str(functions_path),
+                        "--input",
+                        str(prompts_path),
+                    ]
+                )
         self.assertEqual(status, 0)
         self.assertIn("Inputs validated: 1 function(s), 1 prompt(s).", output.getvalue())
 

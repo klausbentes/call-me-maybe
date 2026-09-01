@@ -5,9 +5,13 @@ description = "Foundation layer for the 42 Call Me Maybe project."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "llm-sdk",
     "numpy>=1.24",
     "pydantic>=2.0",
 ]
+
+[tool.uv.sources]
+llm-sdk = { path = "llm_sdk" }
 
 [dependency-groups]
 dev = [
@@ -22,7 +26,4 @@ warn_unused_ignores = true
 ignore_missing_imports = true
 disallow_untyped_defs = true
 check_untyped_defs = true
-
-[tool.flake8]
-max-line-length = 88
-extend-exclude = ".venv,.mypy_cache"
+exclude = '^(llm_sdk|\.venv|\.mypy_cache|\.uv-cache|\.hf-cache)/'

@@ -20,7 +20,11 @@ class LoaderTests(unittest.TestCase):
             functions_path = directory / "functions.json"
             prompts_path = directory / "prompts.json"
             functions_path.write_text(
-                '[{"name":"fn_flag","description":"Set a flag.","parameters":{"value":{"type":"boolean"}},"returns":{"type":"null"}}]',
+                (
+                    '[{"name":"fn_flag","description":"Set a flag.",'
+                    '"parameters":{"value":{"type":"boolean"}},'
+                    '"returns":{"type":"null"}}]'
+                ),
                 encoding="utf-8",
             )
             prompts_path.write_text('[{"prompt":"Enable it"}]', encoding="utf-8")
@@ -42,7 +46,10 @@ class LoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "functions.json"
             path.write_text(
-                '[{"name":"fn_bad","description":"Bad.","parameters":{},"returns":{"type":"date"}}]',
+                (
+                    '[{"name":"fn_bad","description":"Bad.",'
+                    '"parameters":{},"returns":{"type":"date"}}]'
+                ),
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(InputError, "unsupported type 'date'"):

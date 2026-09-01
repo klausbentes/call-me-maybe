@@ -48,7 +48,11 @@ def _validate(model: type[ModelT], data: Any, label: str) -> ModelT:
 
 def load_function_definitions(path: Path) -> FunctionDefinitions:
     """Load and validate a function-definition JSON file."""
-    return _validate(FunctionDefinitions, _read_json(path, "function definitions"), "function definitions")
+    return _validate(
+        FunctionDefinitions,
+        _read_json(path, "function definitions"),
+        "function definitions",
+    )
 
 
 def load_prompt_definitions(path: Path) -> PromptDefinitions:
