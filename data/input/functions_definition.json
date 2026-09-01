@@ -1,0 +1,17 @@
+[
+  {
+    "name": "fn_add_numbers",
+    "description": "Add two numbers and return their sum.",
+    "parameters": {
+      "a": {"type": "number"},
+      "b": {"type": "number"}
+    },
+    "returns": {"type": "number"}
+  },
+  {
+    "name": "fn_greet",
+    "description": "Generate a greeting for a person.",
+    "parameters": {"name": {"type": "string"}},
+    "returns": {"type": "string"}
+  }
+]
