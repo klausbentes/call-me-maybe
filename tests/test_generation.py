@@ -110,8 +110,7 @@ class GenerationTests(unittest.TestCase):
         )
         prompt = build_generation_prompt("Turn it on", definitions)
         self.assertIn("Turn it on", prompt)
-        self.assertIn('"fn_custom"', prompt)
-        self.assertIn('"boolean"', prompt)
+        self.assertIn("fn_custom(value:boolean)->null:Custom action.", prompt)
 
     def test_load_vocabulary_from_sdk_path(self) -> None:
         """Vocabulary loading accepts the token-to-ID JSON representation from the SDK."""

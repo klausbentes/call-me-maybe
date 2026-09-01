@@ -52,12 +52,13 @@ masking invalid candidates with negative infinity, while avoiding decoding every
 whose score cannot affect the result. Vocabulary data and decoded token text are reused
 between prompts.
 
-Profiling one constrained token with the official definitions on the local cached Qwen
-model measured 13.388 seconds in `get_logits_from_input_ids` and 0.167 seconds in
-constraint filtering. Compacting the context while preserving every definition reduced
-the logits measurement to 11.392 seconds; filtering remained below 0.2 seconds. The
-public SDK recomputes the full sequence on each token, so inference—not constrained
-decoding—is the dominant cost.
+The compact definition format preserves each name, typed parameter, return type, and
+description while reducing the first official context from 394 to 116 tokenizer tokens.
+In one public-API profile, the old 394-token context required 2.334 seconds for logits;
+the 116-token context required 0.760 seconds. A schema-aware first-token measurement on
+the compact prompt recorded 0.799 seconds in `get_logits_from_input_ids` and 0.125
+seconds in constraint filtering. The public SDK recomputes the full sequence on each
+token, so inference—not constrained decoding—is the dominant cost.
 
 The supplied official dataset contains 11 prompts and no expected-output field, so it
 cannot measure accuracy automatically. A full CPU benchmark was attempted on the local

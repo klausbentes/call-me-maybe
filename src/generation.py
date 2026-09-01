@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Protocol, TypeAlias, cast
 
-from .models import FunctionDefinitions
+from .models import FunctionDefinition, FunctionDefinitions
 
 
 Vocabulary: TypeAlias = dict[str, int]
@@ -75,14 +75,25 @@ def load_model_vocabulary(model: PublicLanguageModel) -> Vocabulary:
 
 def build_generation_prompt(request: str, functions: FunctionDefinitions) -> str:
     """Build a stable prompt containing the request and available function definitions."""
-    definitions = json.dumps(
-        functions.model_dump()["root"], ensure_ascii=False, separators=(",", ":")
+    definitions = "\n".join(
+        _format_function_definition(function) for function in functions.root
     )
     return (
-        "Select a function call from these definitions:\n"
+        "Functions:\n"
         f"{definitions}\n"
-        f"Request: {request}\n"
-        "Return function-call JSON."
+        f"Request:{request}\n"
+        "JSON:"
+    )
+
+
+def _format_function_definition(function: FunctionDefinition) -> str:
+    """Serialize one validated definition compactly without losing semantic fields."""
+    parameters = ",".join(
+        f"{name}:{definition.type}" for name, definition in function.parameters.items()
+    )
+    return (
+        f"{function.name}({parameters})->{function.returns.type}:"
+        f"{function.description}"
     )
 
 
