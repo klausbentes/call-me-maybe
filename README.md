@@ -1,13 +1,14 @@
-*This project has been created as part of the 42 curriculum by klaus.*
+*This project has been created as part of the 42 curriculum by kbentes-.*
 
 # Call Me Maybe
 
 ## Description
 
 Call Me Maybe translates natural-language requests into schema-valid function calls.
-This repository implements the foundation stage plus an isolated, unconstrained greedy
-generation layer for Qwen/Qwen3-0.6B. The CLI still validates inputs only; function
-selection, structured output, and constrained decoding are not implemented yet.
+This repository implements the foundation stage, an isolated greedy generation layer,
+and structural constrained decoding for Qwen/Qwen3-0.6B. The CLI still validates
+inputs only; function selection and function-specific schema validation are not yet
+implemented.
 
 ## Instructions
 
@@ -31,16 +32,18 @@ Expected input failures are converted into short, actionable CLI messages.
 
 ## Algorithm explanation
 
-The next stage will use schema-aware constrained decoding: at each token, invalid
-continuations will be masked, ensuring
-the final JSON has exactly `prompt`, `name`, and `parameters` with the declared types.
-No heuristic selection or pseudo-generation is used in this foundation stage.
+Structural constrained decoding validates each complete decoded token against an
+incremental JSON-prefix parser. Invalid token logits are masked before greedy selection,
+ensuring an output envelope with exactly `name` and `parameters`, valid string escapes,
+and no trailing commas. The next stage will add function-specific names, parameter keys,
+and declared types. No heuristic function selection is used.
 
 ## Performance analysis
 
 Validation is linear in the size of the JSON inputs and does not load an LLM. The
-separate greedy generator makes one model forward pass per generated token, which is a
-clear baseline for the constrained decoder that follows.
+separate generation layer makes one model forward pass per generated token. Structural
+decoding also evaluates vocabulary candidates at each step, so it is intentionally a
+correctness-first baseline before performance optimization.
 
 ## Challenges faced
 

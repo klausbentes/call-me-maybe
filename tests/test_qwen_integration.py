@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 
+from src.constrained import StructuralDecoderState, consume_token
 from src.generation import (
     create_model,
     decode_tokens,
@@ -26,6 +27,11 @@ class QwenIntegrationTests(unittest.TestCase):
         model = create_model()
         vocabulary = load_model_vocabulary(model)
         self.assertGreater(len(vocabulary), 0)
+        open_brace_id = vocabulary["{"]
+        open_brace = decode_tokens(model, [open_brace_id])
+        self.assertEqual(open_brace, "{")
+        assert open_brace is not None
+        self.assertIsNotNone(consume_token(StructuralDecoderState(), open_brace))
         completion = generate_greedy(model, "Respond with one word:", max_new_tokens=1)
         self.assertEqual(len(completion), 1)
         for text in ('{"name":', '"parameters"', "fn_add_numbers", "hello world"):
