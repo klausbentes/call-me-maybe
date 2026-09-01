@@ -38,6 +38,16 @@ def make_definitions() -> FunctionDefinitions:
                 "parameters": {"enabled": {"type": "boolean"}},
                 "returns": {"type": "boolean"},
             },
+            {
+                "name": "fn_record",
+                "description": "Record mixed values.",
+                "parameters": {
+                    "note": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "active": {"type": "boolean"},
+                },
+                "returns": {"type": "null"},
+            },
         ]
     )
 
@@ -154,6 +164,16 @@ class SchemaConstrainedTests(unittest.TestCase):
         state = consume_schema_token(StructuralDecoderState(), token, self.functions)
         self.assertIsNotNone(state)
         self.assertTrue(state.is_complete if state else False)
+
+    def test_adversarial_values_and_parameter_orders_remain_schema_valid(self) -> None:
+        """Empty/special strings, negative floats, large values, and reordered keys work."""
+        value = (
+            '{"name":"fn_record","parameters":{'
+            '"active":true,"amount":-1234567890.125,'
+            '"note":"\\nquote: \\" and emoji: 😀"}}'
+        )
+        validation = validate_schema_prefix(value, self.functions)
+        self.assertTrue(validation.is_complete)
 
     def test_schema_generation_masks_alternative_function_and_type(self) -> None:
         """The loop completes only the function and typed values favored by valid tokens."""

@@ -522,19 +522,24 @@ def generate_schema_json(
     functions: FunctionDefinitions,
     max_new_tokens: int = 128,
     token_text_cache: dict[int, str] | None = None,
+    vocabulary: Vocabulary | None = None,
+    vocabulary_ids: set[int] | None = None,
 ) -> list[int]:
     """Greedily generate a complete JSON object constrained by the chosen function schema."""
     if max_new_tokens <= 0:
         raise GenerationError("max_new_tokens must be positive")
     input_ids = encoded_token_ids(model, prompt)
-    vocabulary = load_model_vocabulary(model)
+    active_vocabulary = vocabulary if vocabulary is not None else load_model_vocabulary(model)
+    active_vocabulary_ids = (
+        vocabulary_ids if vocabulary_ids is not None else set(active_vocabulary.values())
+    )
     cache = token_text_cache if token_text_cache is not None else {}
     state = StructuralDecoderState()
     generated_ids: list[int] = []
     for _ in range(max_new_tokens):
         logits = model.get_logits_from_input_ids(input_ids)
         next_token_id = select_schema_token_greedy(
-            model, vocabulary, state, functions, cache, logits
+            model, active_vocabulary, active_vocabulary_ids, state, functions, cache, logits
         )
         next_state = consume_schema_token(state, cache[next_token_id], functions)
         if next_state is None:
@@ -550,6 +555,7 @@ def generate_schema_json(
 def select_schema_token_greedy(
     model: PublicLanguageModel,
     vocabulary: Vocabulary,
+    vocabulary_ids: set[int],
     state: StructuralDecoderState,
     functions: FunctionDefinitions,
     token_text_cache: dict[int, str],
@@ -562,7 +568,6 @@ def select_schema_token_greedy(
     is therefore exactly the greedy result of a fully masked vector, without decoding
     every vocabulary entry merely to prove lower-scoring candidates are irrelevant.
     """
-    vocabulary_ids = set(vocabulary.values())
     for token_id in sorted(range(len(logits)), key=lambda item: (-logits[item], item)):
         if token_id not in vocabulary_ids:
             continue

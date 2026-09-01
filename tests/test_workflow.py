@@ -9,7 +9,7 @@ from pathlib import Path
 
 from src.generation import GenerationError
 from src.models import FunctionDefinitions, PromptDefinitions
-from src.workflow import process_prompts, write_results
+from src.workflow import _parse_generated_call, process_prompts, write_results
 
 
 class WorkflowEncodedInput:
@@ -70,8 +70,13 @@ class WorkflowTests(unittest.TestCase):
         )
 
     def _prompts(self) -> PromptDefinitions:
-        """Return two prompts to prove all records are processed."""
-        return PromptDefinitions.from_json_data([{"prompt": "First"}, {"prompt": "Second"}])
+        """Return ambiguous prompts to prove the workflow preserves input unchanged."""
+        return PromptDefinitions.from_json_data(
+            [
+                {"prompt": "Reply or do something else: choose the right tool."},
+                {"prompt": "Could this mean either operation?"},
+            ]
+        )
 
     def test_processes_all_prompts_and_writes_required_array(self) -> None:
         """Every prompt becomes a three-key output record and output directories are created."""
@@ -91,6 +96,7 @@ class WorkflowTests(unittest.TestCase):
             output = json.loads(output_path.read_text(encoding="utf-8"))
         self.assertEqual(len(output), 2)
         self.assertEqual(set(output[0]), {"prompt", "name", "parameters"})
+        self.assertEqual(output[0]["prompt"], "Reply or do something else: choose the right tool.")
         self.assertEqual(output[0]["parameters"], {"message": "ok"})
 
     def test_generation_failure_identifies_the_prompt_number(self) -> None:
@@ -101,3 +107,9 @@ class WorkflowTests(unittest.TestCase):
             model = WorkflowFakeModel({0: "prose"}, [[1.0]], str(path))
             with self.assertRaisesRegex(GenerationError, "prompt 1"):
                 process_prompts(model, self._definitions(), self._prompts())
+
+    def test_final_validation_rejects_schema_mismatch(self) -> None:
+        """A final JSON parse cannot bypass the selected function's parameter type checks."""
+        generated = '{"name":"fn_reply","parameters":{"message":42}}'
+        with self.assertRaisesRegex(GenerationError, "does not match type 'string'"):
+            _parse_generated_call(generated, "Ambiguous prompt", self._definitions())

@@ -17,6 +17,7 @@ from .generation import (
     build_generation_prompt,
     create_model,
     decode_tokens,
+    load_model_vocabulary,
 )
 from .models import FunctionCallResult, FunctionDefinitions, PromptDefinitions
 
@@ -76,6 +77,8 @@ def process_prompts(
     """Generate and validate one schema-aware function call for every input prompt."""
     results: list[FunctionCallResult] = []
     token_text_cache: dict[int, str] = {}
+    vocabulary = load_model_vocabulary(model)
+    vocabulary_ids = set(vocabulary.values())
     for index, prompt_definition in enumerate(prompts.root, start=1):
         try:
             model_prompt = build_generation_prompt(prompt_definition.prompt, functions)
@@ -85,6 +88,8 @@ def process_prompts(
                 functions,
                 max_new_tokens,
                 token_text_cache,
+                vocabulary,
+                vocabulary_ids,
             )
             generated_text = decode_tokens(model, token_ids)
             if generated_text is None:
