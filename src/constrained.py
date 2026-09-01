@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict
@@ -40,6 +41,22 @@ class PrefixValidation(BaseModel):
 
     is_possible: bool
     is_complete: bool
+
+
+class SchemaGenerationMetrics(BaseModel):
+    """Accumulate timing and token-filtering measurements for one generation."""
+
+    logits_seconds: float = 0.0
+    constraint_seconds: float = 0.0
+    generated_tokens: int = 0
+    rejected_candidates: int = 0
+
+
+class TokenSelection(BaseModel):
+    """Represent one greedy selection and the filtering work it required."""
+
+    token_id: int
+    rejected_candidates: int
 
 
 def _skip_whitespace(text: str, index: int) -> int:
@@ -524,6 +541,7 @@ def generate_schema_json(
     token_text_cache: dict[int, str] | None = None,
     vocabulary: Vocabulary | None = None,
     vocabulary_ids: set[int] | None = None,
+    metrics: SchemaGenerationMetrics | None = None,
 ) -> list[int]:
     """Greedily generate a complete JSON object constrained by the chosen function schema."""
     if max_new_tokens <= 0:
@@ -537,15 +555,24 @@ def generate_schema_json(
     state = StructuralDecoderState()
     generated_ids: list[int] = []
     for _ in range(max_new_tokens):
+        logits_started = time.perf_counter()
         logits = model.get_logits_from_input_ids(input_ids)
-        next_token_id = select_schema_token_greedy(
+        logits_elapsed = time.perf_counter() - logits_started
+        constraint_started = time.perf_counter()
+        selection = select_schema_token_greedy(
             model, active_vocabulary, active_vocabulary_ids, state, functions, cache, logits
         )
-        next_state = consume_schema_token(state, cache[next_token_id], functions)
+        constraint_elapsed = time.perf_counter() - constraint_started
+        if metrics is not None:
+            metrics.logits_seconds += logits_elapsed
+            metrics.constraint_seconds += constraint_elapsed
+            metrics.generated_tokens += 1
+            metrics.rejected_candidates += selection.rejected_candidates
+        next_state = consume_schema_token(state, cache[selection.token_id], functions)
         if next_state is None:
             raise GenerationError("selected token does not preserve the function schema")
-        generated_ids.append(next_token_id)
-        input_ids.append(next_token_id)
+        generated_ids.append(selection.token_id)
+        input_ids.append(selection.token_id)
         state = next_state
         if state.is_complete:
             return generated_ids
@@ -560,7 +587,7 @@ def select_schema_token_greedy(
     functions: FunctionDefinitions,
     token_text_cache: dict[int, str],
     logits: Sequence[float],
-) -> int:
+) -> TokenSelection:
     """Select greedily with lazy masking while preserving full-mask semantics.
 
     Candidates are visited in descending logit order (and ascending ID for ties). Every
@@ -568,6 +595,7 @@ def select_schema_token_greedy(
     is therefore exactly the greedy result of a fully masked vector, without decoding
     every vocabulary entry merely to prove lower-scoring candidates are irrelevant.
     """
+    rejected_candidates = 0
     for token_id in sorted(range(len(logits)), key=lambda item: (-logits[item], item)):
         if token_id not in vocabulary_ids:
             continue
@@ -577,5 +605,6 @@ def select_schema_token_greedy(
             token_text = decoded if decoded is not None else ""
             token_text_cache[token_id] = token_text
         if consume_schema_token(state, token_text, functions) is not None:
-            return token_id
+            return TokenSelection(token_id=token_id, rejected_candidates=rejected_candidates)
+        rejected_candidates += 1
     raise GenerationError("no structurally valid token is available")

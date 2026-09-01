@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.constrained import (
     StructuralDecoderState,
+    SchemaGenerationMetrics,
     consume_schema_token,
     generate_schema_json,
     validate_schema_prefix,
@@ -190,5 +191,8 @@ class SchemaConstrainedTests(unittest.TestCase):
             model = SchemaFakeModel(
                 {index: piece for index, piece in enumerate(pieces)}, logits, str(path)
             )
-            generated = generate_schema_json(model, "prompt", self.functions, 6)
+            metrics = SchemaGenerationMetrics()
+            generated = generate_schema_json(model, "prompt", self.functions, 6, metrics=metrics)
         self.assertEqual(generated, [0, 1, 2])
+        self.assertEqual(metrics.generated_tokens, 3)
+        self.assertGreaterEqual(metrics.rejected_candidates, 0)

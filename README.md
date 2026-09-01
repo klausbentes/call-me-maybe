@@ -52,6 +52,13 @@ masking invalid candidates with negative infinity, while avoiding decoding every
 whose score cannot affect the result. Vocabulary data and decoded token text are reused
 between prompts.
 
+Profiling one constrained token with the official definitions on the local cached Qwen
+model measured 13.388 seconds in `get_logits_from_input_ids` and 0.167 seconds in
+constraint filtering. Compacting the context while preserving every definition reduced
+the logits measurement to 11.392 seconds; filtering remained below 0.2 seconds. The
+public SDK recomputes the full sequence on each token, so inference—not constrained
+decoding—is the dominant cost.
+
 The supplied official dataset contains 11 prompts and no expected-output field, so it
 cannot measure accuracy automatically. A full CPU benchmark was attempted on the local
 Qwen cache, but the execution environment interrupted the silent run after model loading

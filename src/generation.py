@@ -75,14 +75,14 @@ def load_model_vocabulary(model: PublicLanguageModel) -> Vocabulary:
 
 def build_generation_prompt(request: str, functions: FunctionDefinitions) -> str:
     """Build a stable prompt containing the request and available function definitions."""
-    definitions = json.dumps(functions.model_dump()["root"], ensure_ascii=False, indent=2)
+    definitions = json.dumps(
+        functions.model_dump()["root"], ensure_ascii=False, separators=(",", ":")
+    )
     return (
-        "You are a function-calling assistant.\n"
-        "Available function definitions:\n"
-        f"{definitions}\n\n"
-        "User request:\n"
-        f"{request}\n\n"
-        "Generate the appropriate function-call JSON."
+        "Select a function call from these definitions:\n"
+        f"{definitions}\n"
+        f"Request: {request}\n"
+        "Return function-call JSON."
     )
 
 
