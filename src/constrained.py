@@ -7,7 +7,7 @@ import math
 import time
 from collections.abc import Callable, Sequence
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .generation import (
     GenerationError,
@@ -50,7 +50,7 @@ class SchemaGenerationMetrics(BaseModel):
     constraint_seconds: float = 0.0
     generated_tokens: int = 0
     rejected_candidates: int = 0
-    token_trace: list["GeneratedTokenTrace"] = []
+    token_trace: list["GeneratedTokenTrace"] = Field(default_factory=list)
 
 
 class TokenSelection(BaseModel):
@@ -424,7 +424,7 @@ def _integer(text: str, index: int) -> int:
 
 
 def _typed_value(text: str, index: int, type_name: str) -> int:
-    """Parse one value constrained only by its declared top-level JSON type."""
+    """Parse one value constrained by its declared top-level JSON type."""
     index = _skip_whitespace(text, index)
     if index == len(text):
         return _INCOMPLETE
@@ -446,12 +446,13 @@ def _typed_value(text: str, index: int, type_name: str) -> int:
 
 
 def _schema_parameters(text: str, index: int, function: FunctionDefinition) -> int:
-    """Parse a parameter object with exactly the keys declared by one function."""
+    """Parse a parameter object with exactly the declared keys."""
     if index == len(text):
         return _INCOMPLETE
     if text[index] != "{":
         return _INVALID
-    index = _skip_whitespace(text, index + 1)
+    index += 1
+    index = _skip_whitespace(text, index)
     seen: set[str] = set()
     if index == len(text):
         return _INCOMPLETE
@@ -493,7 +494,7 @@ def _schema_parameters(text: str, index: int, function: FunctionDefinition) -> i
 
 
 def validate_schema_prefix(prefix: str, functions: FunctionDefinitions) -> PrefixValidation:
-    """Validate a prefix against one dynamically selected function definition."""
+    """Validate a prefix against one selected function definition."""
     index = _skip_whitespace(prefix, 0)
     index = _literal(prefix, index, "{")
     if index < 0:

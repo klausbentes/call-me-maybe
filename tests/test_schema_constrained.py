@@ -173,6 +173,12 @@ class SchemaConstrainedTests(unittest.TestCase):
         self.assertIsNotNone(state)
         self.assertTrue(state.is_complete if state else False)
 
+    def test_schema_allows_structural_and_string_whitespace(self) -> None:
+        """Schema validation permits JSON separators and spaces inside strings."""
+        prefix = ' { "name" : "fn_add_label" , "parameters" : { "label" : "kept space" } } '
+        validation = validate_schema_prefix(prefix, self.functions)
+        self.assertTrue(validation.is_complete)
+
     def test_adversarial_values_and_parameter_orders_remain_schema_valid(self) -> None:
         """Empty/special strings, negative floats, large values, and reordered keys work."""
         value = (
@@ -203,6 +209,23 @@ class SchemaConstrainedTests(unittest.TestCase):
         self.assertEqual(generated, [0, 1, 2])
         self.assertEqual(metrics.generated_tokens, 3)
         self.assertGreaterEqual(metrics.rejected_candidates, 0)
+
+    def test_generated_json_is_parseable_and_schema_compatible(self) -> None:
+        """Whole-token decoding still yields valid JSON for the selected schema."""
+        pieces = ['{"name":"fn_toggle",', '"parameters":{"enabled":true}}']
+        vocabulary = {piece: index for index, piece in enumerate(pieces)}
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "vocabulary.json"
+            path.write_text(json.dumps(vocabulary), encoding="utf-8")
+            model = SchemaFakeModel(
+                {index: piece for index, piece in enumerate(pieces)},
+                [[2.0, -1.0], [-1.0, 2.0]],
+                str(path),
+            )
+            token_ids = generate_schema_json(model, "prompt", self.functions, 2)
+            generated = model.decode(token_ids)
+        self.assertEqual(generated, '{"name":"fn_toggle","parameters":{"enabled":true}}')
+        self.assertEqual(json.loads(generated)["parameters"], {"enabled": True})
 
     def test_generation_rejects_high_logit_comma_after_last_parameter(self) -> None:
         """A higher-scoring comma cannot create an endless whitespace prefix after completion."""

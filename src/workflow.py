@@ -39,6 +39,8 @@ class PromptBenchmarkRecord(BaseModel):
     total_seconds: float
     generated_tokens: int
     function_name: str | None = None
+    parameters: dict[str, Any] | None = None
+    generated_json: str | None = None
     logits_seconds: float
     constraint_seconds: float
     status: Literal["completed", "failed", "interrupted"]
@@ -173,6 +175,8 @@ def diagnose_prompts(
                 total_seconds=time.perf_counter() - started,
                 generated_tokens=len(token_ids),
                 function_name=result.name,
+                parameters=result.parameters,
+                generated_json=generated_text,
                 logits_seconds=metrics.logits_seconds,
                 constraint_seconds=metrics.constraint_seconds,
                 status="completed",

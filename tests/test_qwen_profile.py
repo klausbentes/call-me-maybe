@@ -23,7 +23,7 @@ from src.generation import (
     decode_tokens,
 )
 from src.loader import load_function_definitions, load_prompt_definitions
-from src.models import FunctionDefinitions
+from src.models import FunctionDefinitions, PromptDefinitions
 from src.workflow import PromptBenchmarkRecord, diagnose_prompts
 
 
@@ -157,6 +157,29 @@ class QwenProfileTests(unittest.TestCase):
             reporter=self._print_benchmark_record,
         )
         self.assertEqual(len(records), len(prompts.root))
+
+    def test_profile_selected_official_prompts(self) -> None:
+        """Print complete generation records for selected official prompt positions."""
+        functions = load_function_definitions(Path("data/input/functions_definition.json"))
+        prompts = load_prompt_definitions(Path("data/input/function_calling_tests.json"))
+        positions = os.environ.get("QWEN_PROFILE_PROMPTS", "1,9,10").split(",")
+        selected = [prompts.root[int(position) - 1] for position in positions]
+        model = create_model()
+        for prompt_definition in selected:
+            context = build_generation_prompt(prompt_definition.prompt, functions)
+            print(
+                "static-context: "
+                f"prompt={prompt_definition.prompt!r} "
+                f"tokens={len(encoded_token_ids(model, context))}",
+                flush=True,
+            )
+        records = diagnose_prompts(
+            model,
+            functions,
+            PromptDefinitions(root=selected),
+            reporter=self._print_benchmark_record,
+        )
+        self.assertEqual(len(records), len(selected))
 
     def _print_benchmark_record(self, record: PromptBenchmarkRecord) -> None:
         """Write a Pydantic diagnostic record immediately for timeout-safe collection."""

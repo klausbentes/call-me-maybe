@@ -76,6 +76,19 @@ class ConstrainedDecoderTests(unittest.TestCase):
         self.assertFalse(extra.is_possible)
         self.assertFalse(trailing.is_possible)
 
+    def test_allows_whitespace_outside_string_values(self) -> None:
+        """Optional JSON whitespace remains valid around structural syntax."""
+        prefix = ' { "name" : "x" , "parameters" : { } } '
+        validation = validate_structural_prefix(prefix)
+        self.assertTrue(validation.is_complete)
+
+    def test_allows_whitespace_inside_string_values(self) -> None:
+        """Spaces inside a JSON string remain part of the valid argument value."""
+        prefix = '{"name":"hello world","parameters":{"message":"keep this space"}}'
+        validation = validate_structural_prefix(prefix)
+        self.assertTrue(validation.is_complete)
+        self.assertEqual(json.loads(prefix)["parameters"]["message"], "keep this space")
+
     def test_prefix_supports_string_escapes_and_json_basic_values(self) -> None:
         """Strings, escapes, booleans, null, numbers, arrays, and objects remain valid."""
         prefix = '{"name":"a\\u0041","parameters":{"x":true,"y":null,"z":[1,2]}}'
@@ -93,6 +106,17 @@ class ConstrainedDecoderTests(unittest.TestCase):
         masked = mask_invalid_logits([1.0, 100.0, 2.0], allowed)
         self.assertEqual(allowed, {0, 2})
         self.assertEqual(masked[1], float("-inf"))
+
+    def test_allows_a_structural_whitespace_token_after_a_colon(self) -> None:
+        """A whitespace token remains viable before a required JSON string."""
+        vocabulary = {"space": 0, "quote": 1}
+        token_texts = {0: " ", 1: '"'}
+        model = StructuredFakeModel(token_texts, [], "")
+        state = consume_token(StructuralDecoderState(), '{"name":')
+        self.assertIsNotNone(state)
+        allowed = allowed_token_ids(model, vocabulary, state, {}) if state else set()
+        self.assertIn(0, allowed)
+        self.assertIn(1, allowed)
 
     def test_generate_stops_when_complete_object_is_generated(self) -> None:
         """The generation loop returns immediately after a complete structural object."""

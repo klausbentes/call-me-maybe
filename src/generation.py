@@ -82,6 +82,8 @@ def build_generation_prompt(request: str, functions: FunctionDefinitions) -> str
         "Functions:\n"
         f"{definitions}\n"
         f"Request:{request}\n"
+        "Task:choose the function and extract its arguments from the request. Copy supplied "
+        "literal string values exactly; do not add spaces, punctuation, or formatting.\n"
         "JSON:"
     )
 
