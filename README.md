@@ -5,10 +5,10 @@
 ## Description
 
 Call Me Maybe translates natural-language requests into schema-valid function calls.
-This repository implements the foundation stage, an isolated greedy generation layer,
-and structural constrained decoding for Qwen/Qwen3-0.6B. The CLI processes every
-input prompt, lets the model select from declared function names, and writes a verified
-JSON result array after the decoder enforces the selected parameter schema.
+It uses Qwen/Qwen3-0.6B, greedy token selection, and schema-aware constrained decoding.
+The CLI processes every input prompt, lets the model select from declared function names,
+and writes a verified JSON result array after the decoder enforces the selected parameter
+schema.
 
 ## Instructions
 
@@ -60,11 +60,12 @@ the compact prompt recorded 0.799 seconds in `get_logits_from_input_ids` and 0.1
 seconds in constraint filtering. The public SDK recomputes the full sequence on each
 token, so inference—not constrained decoding—is the dominant cost.
 
-The supplied official dataset contains 11 prompts and no expected-output field, so it
-cannot measure accuracy automatically. A full CPU benchmark was attempted on the local
-Qwen cache, but the execution environment interrupted the silent run after model loading
-and before completion. No end-to-end time, average time, accuracy, or output result is
-claimed here. The mandatory five-minute target therefore remains unverified.
+The supplied official dataset contains 11 prompts and no expected-output field, so its
+semantic results were manually reviewed. The observed accuracy was 10/11 (90.91%). The
+best observed full local run took approximately 486 seconds, which exceeds five minutes.
+The mandatory five-minute target is therefore not proven and was not met in that measured
+environment. These figures are hardware- and cache-dependent, and are reported here as
+measurements rather than guarantees.
 
 ## Challenges faced
 

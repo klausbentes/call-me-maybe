@@ -21,7 +21,7 @@ DEFAULT_OUTPUT = Path("data/output/function_calling_results.json")
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser with the paths required by the subject."""
     parser = argparse.ArgumentParser(
-        description="Validate Call Me Maybe input files (LLM generation is not enabled yet)."
+        description="Generate schema-valid function calls with Qwen/Qwen3-0.6B."
     )
     parser.add_argument("--functions_definition", type=Path, default=DEFAULT_FUNCTIONS)
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(arguments: Sequence[str] | None = None) -> int:
-    """Parse arguments and validate both input documents without generating calls."""
+    """Parse arguments, generate every call, and write the required result array."""
     parser = build_parser()
     options = parser.parse_args(arguments)
     try:
